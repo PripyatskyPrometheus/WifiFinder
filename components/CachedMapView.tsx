@@ -1,10 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const MAP_CACHE_KEY = '@cached_map_html';
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
+// Обновлять кеш при старте в онлайне, но не чаще чем раз в час
+const STARTUP_REFRESH_COOLDOWN = 60 * 60 * 1000;
 
 const API_KEY = 'a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef';
 const API_HEADERS: Record<string, string> = { 'x-api-key': API_KEY };
@@ -36,6 +38,23 @@ export const CachedMapView: React.FC<CachedMapViewProps> = ({
 }) => {
   const [cachedHtml, setCachedHtml] = useState<string | null>(null);
   const [cachedUrl, setCachedUrl] = useState<string>(serverUrl);
+  const [onlineCacheBust, setOnlineCacheBust] = useState<number>(() => Date.now());
+  const startupRefreshDone = useRef(false);
+
+  useEffect(() => {
+    // Если меняется адрес сервера карты, считаем что нужно заново сделать стартовое обновление кеша.
+    startupRefreshDone.current = false;
+  }, [serverUrl]);
+
+
+  useEffect(() => {
+    // При переходе в онлайн принудительно обновляем URL,
+    // чтобы WebView не отдавал старую страницу из своего внутреннего кеша.
+    if (isOnline) {
+      setOnlineCacheBust(Date.now());
+    }
+  }, [isOnline, serverUrl]);
+
   const [lastCacheTime, setLastCacheTime] = useState<number>(0);
 
   const [loading, setLoading] = useState(true);
@@ -174,6 +193,12 @@ true;
     `.trim();
   }, [serverUrl]);
 
+  const onlineUri = useMemo(() => {
+    const sep = serverUrl.includes('?') ? '&' : '?';
+    return `${serverUrl}${sep}_cb=${onlineCacheBust}`;
+  }, [serverUrl, onlineCacheBust]);
+
+
   const loadCachedMap = useCallback(async () => {
     try {
       const cached = await AsyncStorage.getItem(MAP_CACHE_KEY);
@@ -199,7 +224,16 @@ true;
 
     try {
       setLastError(null);
-      const response = await fetch(serverUrl, { headers: API_HEADERS });
+      const sep = serverUrl.includes('?') ? '&' : '?';
+      const cacheBustUrl = `${serverUrl}${sep}_cb=${Date.now()}`;
+      const response = await fetch(cacheBustUrl, {
+        headers: {
+          ...API_HEADERS,
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -236,26 +270,27 @@ true;
   }, [loadCachedMap]);
 
   useEffect(() => {
+    // При старте: если онлайн, обновляем кеш, но не чаще чем раз в час.
+    // Если кеша нет — показываем экран загрузки, как и раньше.
     if (loading) return;
-    if (cachedHtml) return;
     if (!isOnline) return;
     if (downloadingInitial) return;
+    if (startupRefreshDone.current) return;
+
+    const now = Date.now();
+    const shouldRefresh = !cachedHtml || !lastCacheTime || now - lastCacheTime > STARTUP_REFRESH_COOLDOWN;
+    if (!shouldRefresh) {
+      startupRefreshDone.current = true;
+      return;
+    }
 
     (async () => {
-      setDownloadingInitial(true);
+      startupRefreshDone.current = true;
+      if (!cachedHtml) setDownloadingInitial(true);
       await refreshCache();
-      setDownloadingInitial(false);
+      if (!cachedHtml) setDownloadingInitial(false);
     })();
-  }, [cachedHtml, downloadingInitial, isOnline, loading, refreshCache]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (!cachedHtml) return;
-    if (!isOnline) return;
-    if (!isCacheStale) return;
-
-    refreshCache();
-  }, [cachedHtml, isCacheStale, isOnline, loading, refreshCache]);
+  }, [cachedHtml, downloadingInitial, isOnline, lastCacheTime, loading, refreshCache]);
 
   if (loading || downloadingInitial) {
     return (
@@ -279,8 +314,18 @@ true;
     );
   }
 
+
   const source = isOnline
-    ? { uri: serverUrl, headers: API_HEADERS }
+    ? {
+        uri: onlineUri,
+        headers: {
+          ...API_HEADERS,
+          // Подсказка серверу/прокси/вебвью не использовать кеш для HTML/JS карты
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
     : { html: cachedHtml!, baseUrl: cachedUrl || serverUrl };
 
   return (
@@ -296,7 +341,7 @@ true;
         scalesPageToFit
         originWhitelist={['*']}
         cacheEnabled
-        cacheMode={'LOAD_CACHE_ELSE_NETWORK' as any}
+        cacheMode={(isOnline ? 'LOAD_DEFAULT' : 'LOAD_CACHE_ELSE_NETWORK') as any}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest as any}
         onLoadEnd={() => console.log('Карта загружена')}
         injectedJavaScriptBeforeContentLoaded={injectedAuthScript}
