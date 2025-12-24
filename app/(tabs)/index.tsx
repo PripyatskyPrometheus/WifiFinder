@@ -51,6 +51,16 @@ export default function App() {
   const [count, setCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
+const [gpsLocation, setGpsLocation] = useState<LatLng | null>(null);
+const [locationMode, setLocationMode] = useState<'gps' | 'pick' | 'manual'>('gps');
+
+const prevNonPickModeRef = useRef<'gps' | 'manual'>('gps');
+const locationModeRef = useRef<'gps' | 'pick' | 'manual'>('gps');
+
+useEffect(() => {
+  locationModeRef.current = locationMode;
+}, [locationMode]);
+
   const [loading, setLoading] = useState(true);
 
   const [mapUrl, setMapUrl] = useState<string>(SERVER);
@@ -458,6 +468,22 @@ window.__setUserLocation = function (lat, lon) {
   }
 };
 
+window.__rn_centerMap = function (lat, lon, zoom) {
+  try {
+    var ctx = getLeafletCtx();
+    if (!ctx || !ctx.map) return false;
+    var animate = true;
+    if (typeof zoom === 'number' && isFinite(zoom)) {
+      ctx.map.setView([lat, lon], zoom, { animate: animate });
+    } else {
+      ctx.map.panTo([lat, lon], { animate: animate });
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
+
   window.__rn_highlightPoint = function (lat, lon) {
     try {
       var ctx = getLeafletCtx();
@@ -542,14 +568,39 @@ window.__setUserLocation = function (lat, lon) {
     }
   }
 
+  function installMapClickHandlers() {
+    try {
+      var ctx = getLeafletCtx();
+      if (!ctx || !ctx.map) return false;
+      if (ctx.win.__rn_map_clicks_installed) return true;
+      ctx.win.__rn_map_clicks_installed = true;
+
+      ctx.map.on('click', function (e) {
+        try {
+          var ll = e && e.latlng;
+          if (!ll) return;
+          post({ type: 'MAP_CLICK', latitude: ll.lat, longitude: ll.lng });
+        } catch (err) {}
+      });
+
+      post({ type: 'MAP_CLICKS_READY' });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   fixFullscreenIframe();
+
   installPointClickHandlers();
+  installMapClickHandlers();
 
   var tries = 0;
   var t = setInterval(function () {
     tries++;
     fixFullscreenIframe();
     var ok = installPointClickHandlers();
+    try { installMapClickHandlers(); } catch (e) {}
     if (ok || tries > 60) {
       clearInterval(t);
     }
@@ -575,6 +626,40 @@ true;
     webViewRef.current?.injectJavaScript(js);
   };
 
+  const setFollowInWebview = (enabled: boolean) => {
+    const js = `
+(function(){
+  try {
+    if (window.__rn_setFollowUser) window.__rn_setFollowUser(${enabled ? 'true' : 'false'});
+  } catch(e) {}
+})();
+true;
+    `;
+    webViewRef.current?.injectJavaScript(js);
+  };
+
+  const centerMapInWebview = (lat: number, lon: number) => {
+    const js = `
+(function(){
+  try {
+    if (window.__rn_centerMap) window.__rn_centerMap(${lat}, ${lon});
+  } catch(e) {}
+})();
+true;
+    `;
+    webViewRef.current?.injectJavaScript(js);
+  };
+
+  const applyManualLocation = (lat: number, lon: number) => {
+    locationModeRef.current = 'manual';
+    setUserLocation({ latitude: lat, longitude: lon });
+    setLocationMode('manual');
+    sendLocationToWebview(lat, lon);
+    setFollowInWebview(false);
+    centerMapInWebview(lat, lon);
+  };
+
+
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -587,8 +672,12 @@ true;
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          setUserLocation({ latitude: lat, longitude: lon });
-          sendLocationToWebview(lat, lon);
+          setGpsLocation({ latitude: lat, longitude: lon });
+
+if (locationModeRef.current === 'gps') {
+  setUserLocation({ latitude: lat, longitude: lon });
+  sendLocationToWebview(lat, lon);
+}
         }
       );
     })();
@@ -715,11 +804,17 @@ true;
 
       switch (data.type) {
         case 'POINT_CLICK': {
-          const lat = Number(data.latitude);
-          const lon = Number(data.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  const lat = Number(data.latitude);
+  const lon = Number(data.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-          const nearest = findNearestPointTo({ latitude: lat, longitude: lon });
+  if (locationModeRef.current === 'pick') {
+    applyManualLocation(lat, lon);
+    break;
+  }
+
+  const nearest = findNearestPointTo({ latitude: lat, longitude: lon });
+
           if (!nearest) return;
           const THRESHOLD_KM = 0.05;
           if (nearest.distanceKm <= THRESHOLD_KM) {
@@ -727,10 +822,22 @@ true;
           }
           break;
         }
+case 'MAP_CLICK': {
+  const lat = Number(data.latitude);
+  const lon = Number(data.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  if (locationModeRef.current === 'pick') {
+    applyManualLocation(lat, lon);
+  }
+  break;
+}
+
         case 'WEBVIEW_LOADED':
         case 'POINT_CLICKS_READY': {
-          if (userLocation) {
-            sendLocationToWebview(userLocation.latitude, userLocation.longitude);
+          const loc = userLocation ?? gpsLocation;
+          if (loc) {
+            sendLocationToWebview(loc.latitude, loc.longitude);
           }
           break;
         }
@@ -795,18 +902,36 @@ true;
         </View>
       </View>
 
-      <View style={styles.bottomPanel}>
+            <View style={styles.bottomPanel}>
         <TouchableOpacity
           style={[styles.bottomButton, styles.locateButton]}
-          onPress={() => {
-            if (!userLocation) return;
+          onPress={async () => {
+            locationModeRef.current = 'gps';
+            setLocationMode('gps');
+
+            let loc = gpsLocation;
+            if (!loc) {
+              try {
+                const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+                loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                setGpsLocation(loc);
+              } catch (e) {
+              }
+            }
+
+            if (!loc) return;
+
+            setUserLocation(loc);
+            sendLocationToWebview(loc.latitude, loc.longitude);
+
             const js = `
 (function(){
   try {
+    if (window.__rn_setFollowUser) window.__rn_setFollowUser(true);
     if (window.__rn_recenterUser) {
-      window.__rn_recenterUser(${userLocation.latitude}, ${userLocation.longitude});
+      window.__rn_recenterUser(${loc.latitude}, ${loc.longitude});
     } else if (window.__setUserLocation) {
-      window.__setUserLocation(${userLocation.latitude}, ${userLocation.longitude});
+      window.__setUserLocation(${loc.latitude}, ${loc.longitude});
     }
   } catch(e) {}
 })();
@@ -814,9 +939,35 @@ true;
             `;
             webViewRef.current?.injectJavaScript(js);
           }}
-          disabled={!userLocation}
+          disabled={!userLocation && !gpsLocation}
         >
           <Text style={styles.bottomButtonText}>🎯 Я</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.bottomButton,
+            styles.setLocationButton,
+            locationMode === 'pick' ? styles.setLocationButtonActive : null,
+          ]}
+          onPress={() => {
+            if (locationModeRef.current === 'pick') {
+              const back = prevNonPickModeRef.current;
+              locationModeRef.current = back;
+              setLocationMode(back);
+              setFollowInWebview(back === 'gps');
+              return;
+            }
+
+            prevNonPickModeRef.current = (locationModeRef.current === 'manual') ? 'manual' : 'gps';
+            locationModeRef.current = 'pick';
+            setLocationMode('pick');
+            setFollowInWebview(false);
+          }}
+        >
+          <Text style={[styles.bottomButtonText, styles.setLocationButtonText]} numberOfLines={2}>
+            {locationMode === 'pick' ? '📍 Нажмите на карту' : '📍 Задать местоположение'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -838,6 +989,7 @@ true;
           <Text style={styles.bottomButtonText}>Ближайшая</Text>
         </TouchableOpacity>
       </View>
+
 
 
       <PointInfoModal
@@ -931,7 +1083,10 @@ const styles = StyleSheet.create({
   },
   locateButton: { backgroundColor: '#111827' },
   nearestButton: { backgroundColor: '#2196F3' },
+  setLocationButton: { backgroundColor: '#6B7280' },
+  setLocationButtonActive: { backgroundColor: '#F59E0B' },
   bottomButtonText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  setLocationButtonText: { fontSize: 11, textAlign: 'center' },
 
   loadingOverlay: {
     position: 'absolute',
