@@ -8,6 +8,7 @@ interface Point {
   longitude: number;
   name: string;
   rating: number;
+  address: string;
 }
 
 interface PointInfoModalProps {
@@ -30,33 +31,33 @@ export const PointInfoModal: React.FC<PointInfoModalProps> = ({
 
   if (!point) return null;
 
-const handleRate = () => {
-  if (userRating > 0 && point) {
-    Alert.alert('Отправка оценки', `Отправляем оценку ${userRating} звёзд...`,
-      [],
-      { cancelable: false }
-    );
-    
-    onRate(point.id, userRating);
-    
-    setTimeout(() => {
-      Alert.alert(
-        'Спасибо!',
-        `Вы оценили точку "${point.name}" на ${userRating} звёзд`,
-        [{ 
-          text: 'OK', 
-          onPress: () => {
-            setUserRating(0);
-            setTempRating(0);
-            onClose();
-          }
-        }]
+  const handleRate = () => {
+    if (userRating > 0 && point) {
+      Alert.alert('Отправка оценки', `Отправляем оценку ${userRating} звёзд...`,
+        [],
+        { cancelable: false }
       );
-    }, 1000);
-  } else {
-    Alert.alert('Внимание', 'Пожалуйста, выберите оценку от 1 до 5 звёзд');
-  }
-};
+      
+      onRate(point.id, userRating);
+      
+      setTimeout(() => {
+        Alert.alert(
+          'Спасибо!',
+          `Вы оценили точку на ${userRating} звёзд`,
+          [{ 
+            text: 'OK', 
+            onPress: () => {
+              setUserRating(0);
+              setTempRating(0);
+              onClose();
+            }
+          }]
+        );
+      }, 1000);
+    } else {
+      Alert.alert('Внимание', 'Пожалуйста, выберите оценку от 1 до 5 звёзд');
+    }
+  };
 
   const renderStars = (rating: number, isInteractive = false) => {
     return (
@@ -80,6 +81,17 @@ const handleRate = () => {
     );
   };
 
+  const getDisplayTitle = () => {
+    if (point.address && point.address.trim()) {
+      return point.address;
+    }
+    
+    if (point.name && point.name !== `Точка ${point.id}`) {
+      return point.name;
+    }
+    return "Точка";
+  };
+
   return (
     <Modal
       visible={visible}
@@ -93,7 +105,9 @@ const handleRate = () => {
             <MaterialIcons name="close" size={28} color="#666" />
           </TouchableOpacity>
 
-          <Text style={styles.pointTitle}>{point.name}</Text>
+          <Text style={styles.pointTitle} numberOfLines={4}>
+            {getDisplayTitle()}
+          </Text>
           
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Текущий рейтинг:</Text>
@@ -155,11 +169,12 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   pointTitle: {
-    fontSize: 26,
+    fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 25,
     color: '#333',
+    lineHeight: 32,
   },
   section: {
     alignItems: 'center',

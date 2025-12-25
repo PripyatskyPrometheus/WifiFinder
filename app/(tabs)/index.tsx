@@ -31,6 +31,7 @@ interface Point {
   longitude: number;
   name: string;
   rating: number;
+  address: string;
 }
 
 function haversineKm(a: LatLng, b: LatLng): number {
@@ -51,6 +52,16 @@ export default function App() {
   const [count, setCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
+  const [gpsLocation, setGpsLocation] = useState<LatLng | null>(null);
+  const [locationMode, setLocationMode] = useState<'gps' | 'pick' | 'manual'>('gps');
+
+  const prevNonPickModeRef = useRef<'gps' | 'manual'>('gps');
+  const locationModeRef = useRef<'gps' | 'pick' | 'manual'>('gps');
+
+  useEffect(() => {
+    locationModeRef.current = locationMode;
+  }, [locationMode]);
+
   const [loading, setLoading] = useState(true);
 
   const [mapUrl, setMapUrl] = useState<string>(SERVER);
@@ -176,121 +187,121 @@ export default function App() {
     return null;
   }
 
-window.__rn_follow_user = true;
-window.__rn_follow_timer = null;
-window.__rn_last_user = null; // { lat: number, lon: number }
-window.__rn_has_initial_view = false;
+  window.__rn_follow_user = true;
+  window.__rn_follow_timer = null;
+  window.__rn_last_user = null;
+  window.__rn_has_initial_view = false;
 
-function getMaxZoom(ctx) {
-  try {
-    if (ctx && ctx.map && typeof ctx.map.getMaxZoom === 'function') {
-      var z = ctx.map.getMaxZoom();
-      if (typeof z === 'number' && isFinite(z)) return z;
-    }
-  } catch (e) {}
-  return 19;
-}
-
-function panToUser(opts) {
-  try {
-    var ctx = getLeafletCtx();
-    if (!ctx || !ctx.map || !window.__rn_last_user) return false;
-    var lat = window.__rn_last_user.lat;
-    var lon = window.__rn_last_user.lon;
-
-    var animate = true;
-    var zoom = null;
-    if (opts && typeof opts === 'object') {
-      if (typeof opts.animate === 'boolean') animate = opts.animate;
-      if (typeof opts.zoom === 'number' && isFinite(opts.zoom)) zoom = opts.zoom;
-    }
-
-    if (zoom !== null) {
-      ctx.map.setView([lat, lon], zoom, { animate: animate });
-    } else {
-      ctx.map.panTo([lat, lon], { animate: animate });
-    }
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-window.__rn_setFollowUser = function (enabled) {
-  try {
-    window.__rn_follow_user = !!enabled;
-    if (window.__rn_follow_user) {
-      panToUser({ animate: true });
-    }
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-window.__rn_pauseFollow = function (ms) {
-  try {
-    window.__rn_follow_user = false;
+  function getMaxZoom(ctx) {
     try {
-      if (window.__rn_follow_timer) clearTimeout(window.__rn_follow_timer);
+      if (ctx && ctx.map && typeof ctx.map.getMaxZoom === 'function') {
+        var z = ctx.map.getMaxZoom();
+        if (typeof z === 'number' && isFinite(z)) return z;
+      }
     } catch (e) {}
-    var delay = (typeof ms === 'number' && isFinite(ms)) ? ms : 12000;
-    window.__rn_follow_timer = setTimeout(function () {
-      try {
-        window.__rn_follow_user = true;
-        panToUser({ animate: true });
-      } catch (e) {}
-    }, delay);
-    return true;
-  } catch (e) {
-    return false;
+    return 19;
   }
-};
 
-window.__rn_recenterUser = function (lat, lon) {
-  try {
-    window.__rn_last_user = { lat: lat, lon: lon };
-    window.__rn_follow_user = true;
+  function panToUser(opts) {
+    try {
+      var ctx = getLeafletCtx();
+      if (!ctx || !ctx.map || !window.__rn_last_user) return false;
+      var lat = window.__rn_last_user.lat;
+      var lon = window.__rn_last_user.lon;
 
-    var ctx = getLeafletCtx();
-    if (ctx && ctx.map) {
-      var z = getMaxZoom(ctx);
-      ctx.map.setView([lat, lon], z, { animate: true });
-      window.__rn_has_initial_view = true;
+      var animate = true;
+      var zoom = null;
+      if (opts && typeof opts === 'object') {
+        if (typeof opts.animate === 'boolean') animate = opts.animate;
+        if (typeof opts.zoom === 'number' && isFinite(opts.zoom)) zoom = opts.zoom;
+      }
+
+      if (zoom !== null) {
+        ctx.map.setView([lat, lon], zoom, { animate: animate });
+      } else {
+        ctx.map.panTo([lat, lon], { animate: animate });
+      }
       return true;
+    } catch (e) {
+      return false;
     }
-
-    return true;
-  } catch (e) {
-    return false;
   }
-};
 
-function installFollowHandlers() {
-  try {
-    var ctx = getLeafletCtx();
-    if (!ctx || !ctx.map) return false;
+  window.__rn_setFollowUser = function (enabled) {
+    try {
+      window.__rn_follow_user = !!enabled;
+      if (window.__rn_follow_user) {
+        panToUser({ animate: true });
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
 
-    if (ctx.win.__rn_follow_handlers_installed) return true;
-    ctx.win.__rn_follow_handlers_installed = true;
-
-    function onUserInteract() {
+  window.__rn_pauseFollow = function (ms) {
+    try {
+      window.__rn_follow_user = false;
       try {
-        if (window.__rn_pauseFollow) window.__rn_pauseFollow(12000);
+        if (window.__rn_follow_timer) clearTimeout(window.__rn_follow_timer);
       } catch (e) {}
+      var delay = (typeof ms === 'number' && isFinite(ms)) ? ms : 12000;
+      window.__rn_follow_timer = setTimeout(function () {
+        try {
+          window.__rn_follow_user = true;
+          panToUser({ animate: true });
+        } catch (e) {}
+      }, delay);
+      return true;
+    } catch (e) {
+      return false;
     }
+  };
 
-    try { ctx.map.on('mousedown', onUserInteract); } catch (e) {}
-    try { ctx.map.on('touchstart', onUserInteract); } catch (e) {}
-    try { ctx.map.on('dragstart', onUserInteract); } catch (e) {}
-    try { ctx.map.on('zoomstart', onUserInteract); } catch (e) {}
-    try { ctx.map.on('click', onUserInteract); } catch (e) {}
+  window.__rn_recenterUser = function (lat, lon) {
+    try {
+      window.__rn_last_user = { lat: lat, lon: lon };
+      window.__rn_follow_user = true;
 
-    return true;
-  } catch (e) {
-    return false;
+      var ctx = getLeafletCtx();
+      if (ctx && ctx.map) {
+        var z = getMaxZoom(ctx);
+        ctx.map.setView([lat, lon], z, { animate: true });
+        window.__rn_has_initial_view = true;
+        return true;
+      }
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  function installFollowHandlers() {
+    try {
+      var ctx = getLeafletCtx();
+      if (!ctx || !ctx.map) return false;
+
+      if (ctx.win.__rn_follow_handlers_installed) return true;
+      ctx.win.__rn_follow_handlers_installed = true;
+
+      function onUserInteract() {
+        try {
+          if (window.__rn_pauseFollow) window.__rn_pauseFollow(12000);
+        } catch (e) {}
+      }
+
+      try { ctx.map.on('mousedown', onUserInteract); } catch (e) {}
+      try { ctx.map.on('touchstart', onUserInteract); } catch (e) {}
+      try { ctx.map.on('dragstart', onUserInteract); } catch (e) {}
+      try { ctx.map.on('zoomstart', onUserInteract); } catch (e) {}
+      try { ctx.map.on('click', onUserInteract); } catch (e) {}
+
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
-}
 
   window.__RN_MARKER_SIZES = window.__RN_MARKER_SIZES || {
     zoomRef: 14,
@@ -398,65 +409,81 @@ function installFollowHandlers() {
     }
   }
 
-window.__setUserLocation = function (lat, lon) {
-  try {
-    window.__rn_last_user = { lat: lat, lon: lon };
+  window.__setUserLocation = function (lat, lon) {
+    try {
+      window.__rn_last_user = { lat: lat, lon: lon };
 
-    var ctx = getLeafletCtx();
-    if (ctx && ctx.L && ctx.map) {
-      installFollowHandlers();
+      var ctx = getLeafletCtx();
+      if (ctx && ctx.L && ctx.map) {
+        installFollowHandlers();
 
-      if (!ctx.win.__rn_location_marker) {
-        ctx.win.__rn_location_marker = ctx.L.circleMarker([lat, lon], {
-          radius: 12,
-          color: 'red',
-          fillColor: 'red',
-          fillOpacity: 1,
-          weight: 2,
-        }).addTo(ctx.map);
-        ctx.win.__rn_location_marker.__rn_is_user = true;
-      } else {
-        ctx.win.__rn_location_marker.setLatLng([lat, lon]);
-      }
-
-      try { __rn_installSizeHandlers(); __rn_applyUserSize(ctx); } catch (e) {}
-
-      if (window.__rn_follow_user) {
-        if (!window.__rn_has_initial_view) {
-          var z = getMaxZoom(ctx);
-          ctx.map.setView([lat, lon], z, { animate: false });
-          window.__rn_has_initial_view = true;
+        if (!ctx.win.__rn_location_marker) {
+          ctx.win.__rn_location_marker = ctx.L.circleMarker([lat, lon], {
+            radius: 12,
+            color: 'red',
+            fillColor: 'red',
+            fillOpacity: 1,
+            weight: 2,
+          }).addTo(ctx.map);
+          ctx.win.__rn_location_marker.__rn_is_user = true;
         } else {
-          try {
-            ctx.map.panTo([lat, lon], { animate: true });
-          } catch (e) {}
+          ctx.win.__rn_location_marker.setLatLng([lat, lon]);
         }
+
+        try { __rn_installSizeHandlers(); __rn_applyUserSize(ctx); } catch (e) {}
+
+        if (window.__rn_follow_user) {
+          if (!window.__rn_has_initial_view) {
+            var z = getMaxZoom(ctx);
+            ctx.map.setView([lat, lon], z, { animate: false });
+            window.__rn_has_initial_view = true;
+          } else {
+            try {
+              ctx.map.panTo([lat, lon], { animate: true });
+            } catch (e) {}
+          }
+        }
+
+        return true;
       }
 
+      var div = document.getElementById('__rn_location_dot');
+      if (!div) {
+        div = document.createElement('div');
+        div.id = '__rn_location_dot';
+        div.style.position = 'absolute';
+        div.style.width = '24px';
+        div.style.height = '24px';
+        div.style.borderRadius = '12px';
+        div.style.background = 'red';
+        div.style.boxShadow = '0 0 10px rgba(255,0,0,0.8)';
+        div.style.zIndex = 999999;
+        document.body.appendChild(div);
+      }
+      div.style.left = '50%';
+      div.style.top = '50%';
+      div.style.transform = 'translate(-50%, -50%)';
       return true;
+    } catch (e) {
+      return false;
     }
+  };
 
-    var div = document.getElementById('__rn_location_dot');
-    if (!div) {
-      div = document.createElement('div');
-      div.id = '__rn_location_dot';
-      div.style.position = 'absolute';
-      div.style.width = '24px';
-      div.style.height = '24px';
-      div.style.borderRadius = '12px';
-      div.style.background = 'red';
-      div.style.boxShadow = '0 0 10px rgba(255,0,0,0.8)';
-      div.style.zIndex = 999999;
-      document.body.appendChild(div);
+  window.__rn_centerMap = function (lat, lon, zoom) {
+    try {
+      var ctx = getLeafletCtx();
+      if (!ctx || !ctx.map) return false;
+      var animate = true;
+      if (typeof zoom === 'number' && isFinite(zoom)) {
+        ctx.map.setView([lat, lon], zoom, { animate: animate });
+      } else {
+        ctx.map.panTo([lat, lon], { animate: animate });
+      }
+      return true;
+    } catch (e) {
+      return false;
     }
-    div.style.left = '50%';
-    div.style.top = '50%';
-    div.style.transform = 'translate(-50%, -50%)';
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
+  };
 
   window.__rn_highlightPoint = function (lat, lon) {
     try {
@@ -542,14 +569,38 @@ window.__setUserLocation = function (lat, lon) {
     }
   }
 
+  function installMapClickHandlers() {
+    try {
+      var ctx = getLeafletCtx();
+      if (!ctx || !ctx.map) return false;
+      if (ctx.win.__rn_map_clicks_installed) return true;
+      ctx.win.__rn_map_clicks_installed = true;
+
+      ctx.map.on('click', function (e) {
+        try {
+          var ll = e && e.latlng;
+          if (!ll) return;
+          post({ type: 'MAP_CLICK', latitude: ll.lat, longitude: ll.lng });
+        } catch (err) {}
+      });
+
+      post({ type: 'MAP_CLICKS_READY' });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   fixFullscreenIframe();
   installPointClickHandlers();
+  installMapClickHandlers();
 
   var tries = 0;
   var t = setInterval(function () {
     tries++;
     fixFullscreenIframe();
     var ok = installPointClickHandlers();
+    try { installMapClickHandlers(); } catch (e) {}
     if (ok || tries > 60) {
       clearInterval(t);
     }
@@ -575,6 +626,39 @@ true;
     webViewRef.current?.injectJavaScript(js);
   };
 
+  const setFollowInWebview = (enabled: boolean) => {
+    const js = `
+(function(){
+  try {
+    if (window.__rn_setFollowUser) window.__rn_setFollowUser(${enabled ? 'true' : 'false'});
+  } catch(e) {}
+})();
+true;
+    `;
+    webViewRef.current?.injectJavaScript(js);
+  };
+
+  const centerMapInWebview = (lat: number, lon: number) => {
+    const js = `
+(function(){
+  try {
+    if (window.__rn_centerMap) window.__rn_centerMap(${lat}, ${lon});
+  } catch(e) {}
+})();
+true;
+    `;
+    webViewRef.current?.injectJavaScript(js);
+  };
+
+  const applyManualLocation = (lat: number, lon: number) => {
+    locationModeRef.current = 'manual';
+    setUserLocation({ latitude: lat, longitude: lon });
+    setLocationMode('manual');
+    sendLocationToWebview(lat, lon);
+    setFollowInWebview(false);
+    centerMapInWebview(lat, lon);
+  };
+
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -587,8 +671,12 @@ true;
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          setUserLocation({ latitude: lat, longitude: lon });
-          sendLocationToWebview(lat, lon);
+          setGpsLocation({ latitude: lat, longitude: lon });
+
+          if (locationModeRef.current === 'gps') {
+            setUserLocation({ latitude: lat, longitude: lon });
+            sendLocationToWebview(lat, lon);
+          }
         }
       );
     })();
@@ -620,6 +708,7 @@ true;
             longitude: p.lng ?? p.lon ?? p.longitude ?? p.x ?? 0,
             name: p.name ?? `Точка ${p.id}`,
             rating: p.rating ?? 0,
+            address: p.address ?? "",
           }));
           setPoints(formatted);
           setCount(formatted.length);
@@ -655,6 +744,7 @@ true;
         longitude: p.lng ?? p.lon ?? p.longitude ?? p.x ?? 0,
         name: p.name ?? `Точка ${p.id}`,
         rating: p.rating ?? 0,
+        address: p.address ?? "", 
       }));
       setPoints(fresh);
       setCount(fresh.length);
@@ -719,6 +809,11 @@ true;
           const lon = Number(data.longitude);
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
+          if (locationModeRef.current === 'pick') {
+            applyManualLocation(lat, lon);
+            break;
+          }
+
           const nearest = findNearestPointTo({ latitude: lat, longitude: lon });
           if (!nearest) return;
           const THRESHOLD_KM = 0.05;
@@ -727,14 +822,24 @@ true;
           }
           break;
         }
-        case 'WEBVIEW_LOADED':
-        case 'POINT_CLICKS_READY': {
-          if (userLocation) {
-            sendLocationToWebview(userLocation.latitude, userLocation.longitude);
+        case 'MAP_CLICK': {
+          const lat = Number(data.latitude);
+          const lon = Number(data.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+          if (locationModeRef.current === 'pick') {
+            applyManualLocation(lat, lon);
           }
           break;
         }
-
+        case 'WEBVIEW_LOADED':
+        case 'POINT_CLICKS_READY': {
+          const loc = userLocation ?? gpsLocation;
+          if (loc) {
+            sendLocationToWebview(loc.latitude, loc.longitude);
+          }
+          break;
+        }
         default:
           break;
       }
@@ -798,15 +903,33 @@ true;
       <View style={styles.bottomPanel}>
         <TouchableOpacity
           style={[styles.bottomButton, styles.locateButton]}
-          onPress={() => {
-            if (!userLocation) return;
+          onPress={async () => {
+            locationModeRef.current = 'gps';
+            setLocationMode('gps');
+
+            let loc = gpsLocation;
+            if (!loc) {
+              try {
+                const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+                loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+                setGpsLocation(loc);
+              } catch (e) {
+              }
+            }
+
+            if (!loc) return;
+
+            setUserLocation(loc);
+            sendLocationToWebview(loc.latitude, loc.longitude);
+
             const js = `
 (function(){
   try {
+    if (window.__rn_setFollowUser) window.__rn_setFollowUser(true);
     if (window.__rn_recenterUser) {
-      window.__rn_recenterUser(${userLocation.latitude}, ${userLocation.longitude});
+      window.__rn_recenterUser(${loc.latitude}, ${loc.longitude});
     } else if (window.__setUserLocation) {
-      window.__setUserLocation(${userLocation.latitude}, ${userLocation.longitude});
+      window.__setUserLocation(${loc.latitude}, ${loc.longitude});
     }
   } catch(e) {}
 })();
@@ -814,9 +937,35 @@ true;
             `;
             webViewRef.current?.injectJavaScript(js);
           }}
-          disabled={!userLocation}
+          disabled={!userLocation && !gpsLocation}
         >
           <Text style={styles.bottomButtonText}>🎯 Я</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.bottomButton,
+            styles.setLocationButton,
+            locationMode === 'pick' ? styles.setLocationButtonActive : null,
+          ]}
+          onPress={() => {
+            if (locationModeRef.current === 'pick') {
+              const back = prevNonPickModeRef.current;
+              locationModeRef.current = back;
+              setLocationMode(back);
+              setFollowInWebview(back === 'gps');
+              return;
+            }
+
+            prevNonPickModeRef.current = (locationModeRef.current === 'manual') ? 'manual' : 'gps';
+            locationModeRef.current = 'pick';
+            setLocationMode('pick');
+            setFollowInWebview(false);
+          }}
+        >
+          <Text style={[styles.bottomButtonText, styles.setLocationButtonText]} numberOfLines={2}>
+            {locationMode === 'pick' ? '📍 Нажмите на карту' : '📍 Задать местоположение'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -838,7 +987,6 @@ true;
           <Text style={styles.bottomButtonText}>Ближайшая</Text>
         </TouchableOpacity>
       </View>
-
 
       <PointInfoModal
         visible={modalVisible}
@@ -931,7 +1079,10 @@ const styles = StyleSheet.create({
   },
   locateButton: { backgroundColor: '#111827' },
   nearestButton: { backgroundColor: '#2196F3' },
+  setLocationButton: { backgroundColor: '#6B7280' },
+  setLocationButtonActive: { backgroundColor: '#F59E0B' },
   bottomButtonText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  setLocationButtonText: { fontSize: 11, textAlign: 'center' },
 
   loadingOverlay: {
     position: 'absolute',
